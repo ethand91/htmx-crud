@@ -1,0 +1,160 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Sample HTMX CRUD</title>
+  <link href="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/css/bootstrap.min.css" rel="stylesheet">
+  <script src="https://unpkg.com/htmx.org@1.6.1"></script>
+  <script src="https://unpkg.com/htmx.org@1.9.12/dist/ext/client-side-templates.js"></script>
+</head>
+
+<body>
+  <div class="container">
+    <h1 class="mt-5">Simple HTMX CRUD Application</h1>
+    <div id="todo-list" hx-get="/api/todos" hx-trigger="load" hx-target="#todo-list" hx-swap="innerHTML" class="mt-3"></div>
+    <button class="btn btn-primary mt-3" data-toggle="modal" data-target="#addTodoModal">Add Todo</button>
+  </div>
+
+  <!-- Add Todo Modal -->
+  <div class="modal fade" id="addTodoModal" tabindex="-1" role="dialog" aria-labelledby="addTodoModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="addTodoModalLabel">Add Todo</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form hx-post="/api/todos" hx-target="#new-todo-container" hx-swap="beforeend">
+            <div class="form-group">
+              <label for="task">Task</label>
+              <input type="text" class="form-control" id="task" name="task" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Add</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Container to hold new todo items -->
+  <div id="new-todo-container" style="display: none;"></div>
+
+  <!-- Edit Todo Modal -->
+  <div class="modal fade" id="editTodoModal" tabindex="-1" role="dialog" aria-labelledby="editTodoModalLabel" aria-hidden="true">
+    <div class="modal-dialog" role="document">
+      <div class="modal-content">
+        <div class="modal-header">
+          <h5 class="modal-title" id="editTodoModalLabel">Edit Todo</h5>
+          <button type="button" class="close" data-dismiss="modal" aria-label="Close">
+            <span aria-hidden="true">&times;</span>
+          </button>
+        </div>
+        <div class="modal-body">
+          <form id="editTodoForm">
+            <div class="form-group">
+              <label for="editTask">Task</label>
+              <input type="text" class="form-control" id="editTask" name="task" required>
+            </div>
+            <button type="submit" class="btn btn-primary">Save</button>
+          </form>
+        </div>
+      </div>
+    </div>
+  </div>
+
+  <!-- Template for the Todo Item -->
+  <script type="text/template" id="todo-template">
+    <div class="card mb-2" id="todo-{{id}}">
+      <div class="card-body">
+        <h5 class="card-title item-task">{{task}}</h5>
+        <button class="btn btn-warning" onclick="openEditModal('{{id}}', '{{task}}')">Edit</button>
+        <button class="btn btn-danger" onclick="deleteTodo('{{id}}')">Delete</button>
+      </div>
+    </div>
+  </script>
+
+  <script src="https://code.jquery.com/jquery-3.5.1.slim.min.js"></script>
+  <script src="https://cdn.jsdelivr.net/npm/@popperjs/core@2.5.3/dist/umd/popper.min.js"></script>
+  <script src="https://maxcdn.bootstrapcdn.com/bootstrap/4.5.2/js/bootstrap.min.js"></script>
+
+  <script>
+    function renderTodoItem(todo) {
+      const template = document.getElementById('todo-template').innerHTML;
+      return template.replace(/{{id}}/g, todo.id).replace(/{{task}}/g, todo.task);
+    }
+
+    document.addEventListener('htmx:afterRequest', (event) => {
+      if (event.detail.requestConfig.verb === 'post') {
+        document.querySelector('#addTodoModal form').reset();
+        $('#addTodoModal').modal('hide');
+
+        const newTodo = JSON.parse(event.detail.xhr.responseText);
+        const todoHtml = renderTodoItem(newTodo);
+
+        document.getElementById('todo-list').insertAdjacentHTML('beforeend', todoHtml);
+
+        event.preventDefault();
+      } else if (event.detail.requestConfig.verb === 'put') {
+        $('#editTodoModal').modal('hide');
+      }
+    });
+
+    function openEditModal(id, task) {
+      const editForm = document.getElementById('editTodoForm');
+      editForm.setAttribute('data-id', id); // Store the ID in a data attribute
+      document.getElementById('editTask').value = task;
+      $('#editTodoModal').modal('show');
+    }
+
+    document.getElementById('editTodoForm').addEventListener('submit', function(event) {
+      event.preventDefault(); // Prevent default form submission
+
+      const id = event.target.getAttribute('data-id');
+      const task = document.getElementById('editTask').value;
+
+      fetch(`/api/todos/${id}`, {
+        method: 'PUT',
+        headers: {
+          'Content-Type': 'application/json'
+        },
+        body: JSON.stringify({ task })
+      })
+      .then(response => response.json())
+      .then(data => {
+        const todoHtml = renderTodoItem(data);
+        document.querySelector(`#todo-${id}`).outerHTML = todoHtml;
+        $('#editTodoModal').modal('hide');
+      })
+      .catch(error => console.error('Error:', error));
+    });
+
+    function deleteTodo(id) {
+      fetch(`/api/todos/${id}`, {
+        method: 'DELETE'
+      })
+      .then(() => {
+        document.querySelector(`#todo-${id}`).remove();
+      });
+    }
+
+    document.addEventListener('htmx:afterSwap', (event) => {
+      if (event.target.id === 'todo-list') {
+        const todos = JSON.parse(event.detail.xhr.responseText);
+        if (Array.isArray(todos)) {
+          let html = '';
+          todos.forEach(todo => {
+            html += renderTodoItem(todo);
+          });
+          event.target.innerHTML = html;
+        } else {
+          const todoHtml = renderTodoItem(todos);
+          event.target.insertAdjacentHTML('beforeend', todoHtml);
+        }
+      }
+    });
+  </script>
+</body>
+</html>
